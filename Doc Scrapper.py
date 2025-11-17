@@ -40,6 +40,12 @@ SEARCH_SOURCES = [
         'search_templates': ['?s={keyword}', '/search?q={keyword}'],
         'enabled': True
     },
+    {
+        'name': 'New PDF Site',
+        'base_url': 'https://open.umn.edu/opentextbooks//',
+        'search_templates': ['?search={keyword}'],
+        'enabled': True
+    }
     # ADD MORE SEARCH SOURCES HERE - Example:
     # {
     #     'name': 'New PDF Site',
@@ -54,20 +60,11 @@ SEARCH_SOURCES = [
 DIRECT_SOURCES = [
     {
         'name': 'SQL Tutorial - W3Schools',
-        'url': 'https://www.w3schools.com/sql/',
+        'url': 'https://open.umn.edu/opentextbooks/subjects/databases',
         'enabled': True
     },
-    {
-        'name': 'Python Tutorial - Python.org',
-        'url': 'https://www.python.org/downloads/',
-        'enabled': True
-    },
-    {
-        'name': 'PostgreSQL Documentation',
-        'url': 'https://www.postgresql.org/docs/current/',
-        'enabled': True
-    },
-    # ADD MORE DIRECT SOURCES HERE - Example:
+
+# ADD MORE DIRECT SOURCES HERE - Example:
     # {
     #     'name': 'Another PDF Source',
     #     'url': 'https://example.com/tutorials/',
