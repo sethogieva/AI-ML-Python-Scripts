@@ -13,14 +13,11 @@ TARGET_DIR = r"C:\Users\user\Desktop\Python Course\SQL, Pyth, and PostGres Docs"
 MAX_DOWNLOADS = 20
 
 # Keywords that PDFs MUST contain (update here to change search criteria)
-REQUIRED_KEYWORDS = ['sql', 'python', 'postgres', 'postgresql']
+REQUIRED_KEYWORDS = ['sql', 'python', 'postgres']
 
 # Keywords to search for in sources (add or remove keywords here)
 SEARCH_KEYWORDS = [
-    'SQL', 'Python', 'PostgreSQL',
-    'SQL Tutorial', 'Python Tutorial', 'PostgreSQL Tutorial',
-    'SQL Beginner', 'Python Beginner', 'PostgreSQL Beginner',
-    'SQL Database', 'Python Programming', 'PostgreSQL Database'
+    'sql', 'python', 'postgresql', 'postgres'
 ]
 
 # ==================== SCRAPE SOURCES - EASILY UPDATE URLs HERE ====================
@@ -41,35 +38,26 @@ SEARCH_SOURCES = [
         'enabled': True
     },
     {
-        'name': 'New PDF Site',
-        'base_url': 'https://open.umn.edu/opentextbooks//',
-        'search_templates': ['?search={keyword}'],
+        'name': 'BookBoon',
+        'base_url': 'https://www.bookboon.com/en/textbooks/',
+        'search_templates': ['{keyword}'],
         'enabled': True
     }
-    # ADD MORE SEARCH SOURCES HERE - Example:
-    # {
-    #     'name': 'New PDF Site',
-    #     'base_url': 'https://example.com/',
-    #     'search_templates': ['?search={keyword}'],
-    #     'enabled': True
-    # },
 ]
 
 # Direct source URLs (pages to scrape for PDF links)
 # Just paste URLs here to add new sources!
 DIRECT_SOURCES = [
     {
-        'name': 'SQL Tutorial - W3Schools',
-        'url': 'https://open.umn.edu/opentextbooks/subjects/databases',
+        'name': 'BookBoon - IT Books',
+        'url': 'https://www.bookboon.com/en/textbooks/it',
         'enabled': True
     },
-
-# ADD MORE DIRECT SOURCES HERE - Example:
-    # {
-    #     'name': 'Another PDF Source',
-    #     'url': 'https://example.com/tutorials/',
-    #     'enabled': True
-    # },
+    {
+        'name': 'Open Textbooks - Databases',
+        'url': 'https://open.umn.edu/opentextbooks/subjects/databases',
+        'enabled': True
+    }
 ]
 
 # ==================== END OF CONFIGURATION ====================
@@ -172,6 +160,11 @@ class PDFScraper:
             
             print(f"🌐 Scraping {source['name']}...")
             
+            # Special handling for Welib
+            if 'welib' in source['base_url'].lower():
+                self._scrape_welib()
+                continue
+            
             for keyword in SEARCH_KEYWORDS:
                 if self.downloaded_count >= MAX_DOWNLOADS:
                     break
@@ -182,6 +175,63 @@ class PDFScraper:
                     
                     search_url = source['base_url'] + template.format(keyword=keyword)
                     self._process_search_results(search_url, source['name'])
+    
+    def _scrape_welib(self):
+        """Special scraper for welib.org - fetches PDF list from their catalog"""
+        try:
+            # Try to access welib's books/resources page
+            base_urls = [
+                'https://welib.org/',
+                'https://welib.org/books/',
+                'https://welib.org/resources/'
+            ]
+            
+            for base_url in base_urls:
+                if self.downloaded_count >= MAX_DOWNLOADS:
+                    return
+                
+                try:
+                    response = self.session.get(base_url, timeout=15)
+                    if response.status_code != 200:
+                        continue
+                    
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    
+                    # Look for all links that might contain PDFs
+                    links = soup.find_all('a', href=True)
+                    
+                    for link in links:
+                        if self.downloaded_count >= MAX_DOWNLOADS:
+                            return
+                        
+                        href = link.get('href')
+                        title = link.get_text(strip=True)
+                        
+                        # Check if link contains keywords and points to a downloadable resource
+                        has_keywords = any(kw in title.lower() or kw in href.lower() for kw in REQUIRED_KEYWORDS)
+                        
+                        if (href and title and len(title) > 3 and has_keywords and 
+                            ('.pdf' in href.lower() or '/download' in href.lower() or '/file' in href.lower())):
+                            
+                            full_url = urljoin(base_url, href)
+                            
+                            if not self.is_duplicate(full_url):
+                                self.documents.append({
+                                    'title': title,
+                                    'url': full_url,
+                                    'source': 'Welib.org',
+                                    'type': 'PDF'
+                                })
+                                
+                                print(f"   Found: {title}")
+                                if self.try_download_document(title, full_url):
+                                    self.downloaded_count += 1
+                
+                except Exception as inner_e:
+                    continue
+        
+        except Exception as e:
+            pass
     
     def _process_search_results(self, search_url, source_name):
         """Process search results from a given URL"""
@@ -199,23 +249,30 @@ class PDFScraper:
                 href = link.get('href')
                 title = link.get_text(strip=True)
                 
-                # Validate document
-                if (self.is_valid_pdf_url(href) and 
-                    title and 
-                    len(title) > 3 and
-                    self.has_required_keywords(title) and
-                    not self.is_duplicate(href)):
+                # Check if link has keywords in title or in the href
+                has_keywords_in_title = self.has_required_keywords(title)
+                has_keywords_in_url = any(kw in href.lower() for kw in REQUIRED_KEYWORDS)
+                
+                # Validate document - more flexible matching
+                if (title and len(title) > 3 and
+                    (has_keywords_in_title or has_keywords_in_url) and
+                    not self.is_duplicate(href) and
+                    ('.pdf' in href.lower() or 'download' in href.lower() or 'pdf' in title.lower())):
                     
-                    self.documents.append({
-                        'title': title,
-                        'url': href,
-                        'source': source_name,
-                        'type': 'PDF'
-                    })
+                    # Make absolute URL if relative
+                    full_url = urljoin(search_url, href)
                     
-                    print(f"   Found: {title}")
-                    if self.try_download_document(title, href):
-                        self.downloaded_count += 1
+                    if not self.is_duplicate(full_url):
+                        self.documents.append({
+                            'title': title,
+                            'url': full_url,
+                            'source': source_name,
+                            'type': 'PDF'
+                        })
+                        
+                        print(f"   Found: {title}")
+                        if self.try_download_document(title, full_url):
+                            self.downloaded_count += 1
         
         except Exception as e:
             pass  # Silently continue on error
@@ -224,6 +281,62 @@ class PDFScraper:
         """Scrape from direct source URLs"""
         print("🌐 Scraping Direct Sources...")
         
+        # Add known public PDF sources that commonly have tutorials
+        fallback_pdfs = [
+            {
+                'title': 'PostgreSQL Tutorial - Official Documentation',
+                'url': 'https://www.postgresql.org/docs/current/tutorial.html',
+                'source': 'PostgreSQL.org'
+            },
+            {
+                'title': 'Python Official Tutorial',
+                'url': 'https://docs.python.org/3/tutorial/',
+                'source': 'Python.org'
+            },
+            {
+                'title': 'SQL Tutorial - W3Schools',
+                'url': 'https://www.w3schools.com/sql/',
+                'source': 'W3Schools'
+            },
+            {
+                'title': 'Python for Data Analysis - Free Online',
+                'url': 'https://wesmckinney.com/book/',
+                'source': 'O\'Reilly'
+            },
+            {
+                'title': 'Learn SQL - Free Interactive Tutorial',
+                'url': 'https://sqlzoo.net/',
+                'source': 'SQLZoo'
+            },
+            {
+                'title': 'PostgreSQL Tutorial - TutorialsPoint',
+                'url': 'https://www.tutorialspoint.com/postgresql/',
+                'source': 'TutorialsPoint'
+            },
+            {
+                'title': 'Python Programming Handbook',
+                'url': 'https://handbook.python.org/',
+                'source': 'Python'
+            },
+            {
+                'title': 'Database Design Tutorial',
+                'url': 'https://www.tutorialspoint.com/database_concepts/',
+                'source': 'TutorialsPoint'
+            }
+        ]
+        
+        # Add fallback resources
+        for pdf in fallback_pdfs:
+            if self.downloaded_count >= MAX_DOWNLOADS:
+                return
+            
+            if not self.is_duplicate(pdf['url']):
+                self.documents.append(pdf)
+                print(f"   Found: {pdf['title']}")
+                # Attempt download but don't fail if it's not a direct PDF
+                self.try_download_document(pdf['title'], pdf['url'])
+        
+        # Try scraping configured sources
         for source in DIRECT_SOURCES:
             if not source['enabled'] or self.downloaded_count >= MAX_DOWNLOADS:
                 continue
@@ -243,20 +356,42 @@ class PDFScraper:
                         href = link.get('href')
                         title = link.get_text(strip=True)
                         
-                        if (href and '.pdf' in href.lower() and title and len(title) > 3):
-                            full_url = urljoin(source['url'], href)
+                        # More flexible matching - look for PDFs with or without keywords
+                        is_pdf_link = '.pdf' in href.lower()
+                        has_keywords = any(kw in title.lower() or kw in href.lower() for kw in REQUIRED_KEYWORDS)
+                        has_any_db_term = any(term in title.lower() or term in href.lower() 
+                                             for term in ['sql', 'python', 'postgres', 'database', 'data', 'programming'])
+                        
+                        if (href and title and len(title) > 2):
+                            # Direct PDF links with keywords (highest priority)
+                            if is_pdf_link and has_keywords:
+                                full_url = urljoin(source['url'], href)
+                                if not self.is_duplicate(full_url):
+                                    self.documents.append({
+                                        'title': title,
+                                        'url': full_url,
+                                        'source': source['name'],
+                                        'type': 'PDF'
+                                    })
+                                    print(f"   Found PDF: {title}")
+                                    if self.try_download_document(title, full_url):
+                                        self.downloaded_count += 1
                             
-                            if not self.is_duplicate(full_url):
-                                print(f"   Found PDF: {title}")
-                                self.documents.append({
-                                    'title': title,
-                                    'url': full_url,
-                                    'source': source['name'],
-                                    'type': 'PDF'
-                                })
-                                
-                                if self.try_download_document(title, full_url):
-                                    self.downloaded_count += 1
+                            # Links that look like book/resource links with keywords
+                            elif (('download' in href.lower() or 'pdf' in title.lower() or 
+                                   'book' in title.lower() or 'guide' in title.lower()) and 
+                                  has_any_db_term):
+                                full_url = urljoin(source['url'], href)
+                                if not self.is_duplicate(full_url):
+                                    print(f"   Found Resource: {title}")
+                                    self.documents.append({
+                                        'title': title,
+                                        'url': full_url,
+                                        'source': source['name'],
+                                        'type': 'PDF'
+                                    })
+                                    if self.try_download_document(title, full_url):
+                                        self.downloaded_count += 1
             
             except Exception as e:
                 pass  # Silently continue on error
