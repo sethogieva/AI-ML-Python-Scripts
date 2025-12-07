@@ -1,0 +1,9 @@
+scikit-learn==1.3.2
+joblib==1.3.2
+numpy==1.26.2
+flask==3.0.0
+gunicorn==21.2.0
+# Image model dependencies
+torch==2.2.2
+torchvision==0.17.1
+Pillow==9.5.0
