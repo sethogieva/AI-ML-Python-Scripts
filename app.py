@@ -81,13 +81,7 @@ INDEX_HTML = '''
                                 <h2 class="mb-3">Flower Recognizer</h2>
                                 <p class="muted">Upload a photo of a flower or enter measurements to get a prediction.</p>
 
-                                <div class="mb-3">
-                                    <label class="form-label">Enter measurements (optional)</label>
-                                    <div class="input-group mb-2">
-                                        <input class="form-control" id="slen" placeholder="sepal length" value="5.1">
-                                        <input class="form-control" id="swid" placeholder="sepal width" value="3.5">
-                                    </div>
-                                    <div class="input-group">
+                                                                <!-- Notes removed per user request -->
                                         <input class="form-control" id="plen" placeholder="petal length" value="1.4">
                                         <input class="form-control" id="pwid" placeholder="petal width" value="0.2">
                                     </div>
@@ -166,20 +160,7 @@ INDEX_HTML = '''
 
                         card.appendChild(title);
 
-                        // Method / explanation
-                        const explain = document.createElement('div');
-                        explain.style.marginTop = '8px';
-                        explain.className = 'muted';
-                        if(method === 'image-model'){
-                                explain.textContent = 'Predicted by the trained image model.';
-                        } else if(method === 'visual-heuristic-placeholder'){
-                                explain.textContent = 'Predicted by a simple visual heuristic (low confidence). Consider training the image model for better results.';
-                        } else if(method === 'numeric'){
-                                explain.textContent = 'Predicted by numeric measurements.';
-                        } else {
-                                explain.textContent = `Method: ${method}`;
-                        }
-                        card.appendChild(explain);
+                        // (notes removed) — no helper text shown here per user request
 
                         // Nice confidence bar
                         const barWrap = document.createElement('div');
@@ -227,7 +208,12 @@ INDEX_HTML = '''
 
 @app.route('/', methods=['GET'])
 def index():
-        return render_template_string(INDEX_HTML)
+        from flask import make_response
+        # Return homepage with headers to prevent aggressive browser caching
+        resp = make_response(render_template_string(INDEX_HTML))
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        return resp
 
 
 @app.route('/health', methods=['GET'])
@@ -243,7 +229,17 @@ def predict():
         input_arr = np.array(data['input']).reshape(1, -1)
         pred_index = int(numeric_model.predict(input_arr)[0])
         pred_name = SPECIES.get(pred_index, str(pred_index))
-        return jsonify({'prediction_index': pred_index, 'prediction_name': pred_name})
+        # Try to provide a confidence score when model supports it
+        conf = None
+        try:
+                if hasattr(numeric_model, 'predict_proba'):
+                        probs = numeric_model.predict_proba(input_arr)[0]
+                        conf = float(probs.max())
+        except Exception:
+                conf = None
+        if conf is None:
+                conf = 1.0
+        return jsonify({'method': 'numeric', 'prediction_index': pred_index, 'prediction_name': pred_name, 'confidence': round(float(conf), 3)})
 
 
 @app.route('/predict-image', methods=['POST'])
